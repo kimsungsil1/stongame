@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8">
-  <title>바둑 게임 (Go) - AI 상대</title>
+  <title>바둑 게임 (Go) - AI 상대 & 간단 점수</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
     :root {
@@ -55,6 +55,7 @@
       <option value="19" selected>19×19</option>
     </select>
     <button id="resetBtn">새 게임</button>
+    <button id="resultBtn">결과 보기</button>
     <span id="turnInfo"></span>
   </div>
   <div id="boardWrapper">
@@ -66,6 +67,7 @@
     const ctx      = canvas.getContext('2d');
     const sizeSel  = document.getElementById('sizeSelect');
     const resetBtn = document.getElementById('resetBtn');
+    const resultBtn= document.getElementById('resultBtn');
     const turnInfo = document.getElementById('turnInfo');
     const wrapper  = document.getElementById('boardWrapper');
 
@@ -102,16 +104,14 @@
       if(bd[r][c]!==0) return false;
       const opp = color===HUMAN?AI:HUMAN;
       bd[r][c]=color;
-      // capture opponent groups
       for(const [nr,nc] of neighbors(r,c)){
         if(bd[nr][nc]===opp){
-          const visited=bd.map(r=>Array(boardSize).fill(false));
+          const visited=bd.map(_=>Array(boardSize).fill(false));
           const {grp,libs}=groupAndLibs(bd,nr,nc,opp,visited);
           if(libs===0) removeGroup(bd,grp);
         }
       }
-      // check suicide
-      const visitedSelf=bd.map(r=>Array(boardSize).fill(false));
+      const visitedSelf=bd.map(_=>Array(boardSize).fill(false));
       const {libs:selfLibs}=groupAndLibs(bd,r,c,color,visitedSelf);
       if(selfLibs===0){ bd[r][c]=0; return false; }
       return true;
@@ -131,7 +131,6 @@
       ctx.clearRect(0,0,canvas.width,canvas.height);
       ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--grid-color');
       ctx.lineWidth = 1;
-      // grid
       for(let i=0;i<boardSize;i++){
         ctx.beginPath();
         ctx.moveTo(marginPx + i*cellPx, marginPx);
@@ -142,7 +141,6 @@
         ctx.lineTo(marginPx + cellPx*(boardSize-1), marginPx + i*cellPx);
         ctx.stroke();
       }
-      // stones
       for(let r=0;r<boardSize;r++){
         for(let c=0;c<boardSize;c++){
           if(board[r][c]) drawStone(c,r,board[r][c]);
@@ -162,7 +160,7 @@
       ctx.stroke();
     }
 
-    function updateTurnInfo(msg=""){
+    function updateTurn(msg=""){
       turnInfo.textContent = msg || '당신 차례: ●';
     }
 
@@ -171,10 +169,10 @@
       board = Array.from({length: boardSize}, _=>Array(boardSize).fill(0));
       calcDimensions();
       drawBoard();
-      updateTurnInfo();
+      updateTurn();
     }
 
-    function canvasCoord(evt){
+    function coord(evt){
       const rect=canvas.getBoundingClientRect();
       const x=(evt.touches?evt.touches[0].clientX:evt.clientX)-rect.left;
       const y=(evt.touches?evt.touches[0].clientY:evt.clientY)-rect.top;
@@ -190,30 +188,44 @@
 
     function humanMove(evt){
       evt.preventDefault();
-      const cc=canvasCoord(evt);
+      const cc=coord(evt);
       if(!cc) return;
       const {row,col}=cc;
-      if(!tryPlace(board,row,col,HUMAN)) return; // illegal
+      if(!tryPlace(board,row,col,HUMAN)) return;
       drawBoard();
-      updateTurnInfo('AI 생각 중…');
+      updateTurn('AI 생각 중…');
       setTimeout(aiMove, 300);
     }
 
     function aiMove(){
-      const legalMoves=[];
+      const legal=[];
       for(let r=0;r<boardSize;r++){
         for(let c=0;c<boardSize;c++){
-          if(board[r][c]!==0) continue;
+          if(board[r][c]) continue;
           const tmp=cloneBoard(board);
-          if(tryPlace(tmp,r,c,AI)) legalMoves.push([r,c]);
+          if(tryPlace(tmp,r,c,AI)) legal.push([r,c]);
         }
       }
-      if(legalMoves.length){
-        const [r,c]=legalMoves[Math.floor(Math.random()*legalMoves.length)];
+      if(legal.length){
+        const [r,c]=legal[Math.floor(Math.random()*legal.length)];
         tryPlace(board,r,c,AI);
         drawBoard();
       }
-      updateTurnInfo();
+      updateTurn();
+    }
+
+    function simpleScore(){
+      let black=0,white=0;
+      for(let r=0;r<boardSize;r++){
+        for(let c=0;c<boardSize;c++){
+          if(board[r][c]===HUMAN) black++;
+          else if(board[r][c]===AI) white++;
+        }
+      }
+      let winner='무승부';
+      if(black>white) winner='흑 승';
+      else if(white>black) winner='백 승';
+      return {black,white,winner};
     }
 
     /* -------------------- Event bindings -------------------- */
@@ -221,6 +233,11 @@
     canvas.addEventListener('touchend', humanMove);
     sizeSel.addEventListener('change', ()=>{ boardSize=parseInt(sizeSel.value); initGame(); });
     resetBtn.addEventListener('click', initGame);
+    resultBtn.addEventListener('click', ()=>{
+      const {black,white,winner}=simpleScore();
+      updateTurn(`흑 ${black} : 백 ${white} → ${winner}`);
+      alert(`흑 ${black} : 백 ${white}\n${winner}!`);
+    });
     window.addEventListener('resize', ()=>{ calcDimensions(); drawBoard(); });
 
     initGame();
