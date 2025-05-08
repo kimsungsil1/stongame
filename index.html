@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8">
-  <title>바둑 게임 (Go)</title>
+  <title>바둑 게임 (Go) - AI 상대</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
     :root {
@@ -38,13 +38,13 @@
       background: var(--bg-board);
       border-radius: 0.5rem;
       box-shadow: 0 4px 10px rgba(0,0,0,0.2);
-      touch-action: manipulation; /* smoother mobile taps */
+      touch-action: manipulation;
     }
     canvas { display: block; height: auto; width: 100%; }
   </style>
 </head>
 <body>
-  <h1>바둑 게임</h1>
+  <h1>바둑 게임 (AI 상대)</h1>
   <div id="controls">
     <label for="sizeSelect">보드 크기:</label>
     <select id="sizeSelect">
@@ -69,56 +69,83 @@
     const turnInfo = document.getElementById('turnInfo');
     const wrapper  = document.getElementById('boardWrapper');
 
-    const stoneRadiusRatio = 0.4; // relative to cell size
+    const HUMAN = 1;  // black ●
+    const AI    = 2;  // white ○
+    const stoneRadiusRatio = 0.4;
 
     let boardSize = parseInt(sizeSel.value);
-    let board  = [];// 0 empty, 1 black, 2 white
-    let player = 1; // black first
+    let board = [];
+    let marginPx, cellPx;
 
-    let marginPx; // dynamic per resize
-    let cellPx;
+    /* -------------------- helpers -------------------- */
+    function cloneBoard(src){ return src.map(r=>r.slice()); }
 
-    function calcDimensions() {
-      // use 90vw or 600px max, minus some padding
-      const maxBoardPx = Math.min(window.innerWidth * 0.9, 600);
-      cellPx   = Math.floor(maxBoardPx / boardSize);
-      marginPx = cellPx; // keep margin 1 cell
-      canvas.width  = marginPx*2 + cellPx*(boardSize-1);
-      canvas.height = canvas.width; // square
-      wrapper.style.width = canvas.width + 'px';
+    function neighbors(r,c){
+      return [[r-1,c],[r+1,c],[r,c-1],[r,c+1]].filter(([nr,nc])=>nr>=0&&nr<boardSize&&nc>=0&&nc<boardSize);
     }
 
-    function initBoard() {
-      board = Array.from({length: boardSize}, () => Array(boardSize).fill(0));
-      player = 1;
-      calcDimensions();
-      drawBoard();
-      updateTurnInfo();
+    function groupAndLibs(bd, r,c,color,visited){
+      const stack=[[r,c]], grp=[]; let libs=0; visited[r][c]=true;
+      while(stack.length){
+        const [cr,cc]=stack.pop(); grp.push([cr,cc]);
+        for(const [nr,nc] of neighbors(cr,cc)){
+          if(bd[nr][nc]===0) libs++;
+          else if(bd[nr][nc]===color && !visited[nr][nc]){ visited[nr][nc]=true; stack.push([nr,nc]); }
+        }
+      }
+      return {grp,libs};
     }
 
-    function drawBoard() {
+    function removeGroup(bd, grp){ for(const [r,c] of grp) bd[r][c]=0; }
+
+    function tryPlace(bd,r,c,color){
+      if(bd[r][c]!==0) return false;
+      const opp = color===HUMAN?AI:HUMAN;
+      bd[r][c]=color;
+      // capture opponent groups
+      for(const [nr,nc] of neighbors(r,c)){
+        if(bd[nr][nc]===opp){
+          const visited=bd.map(r=>Array(boardSize).fill(false));
+          const {grp,libs}=groupAndLibs(bd,nr,nc,opp,visited);
+          if(libs===0) removeGroup(bd,grp);
+        }
+      }
+      // check suicide
+      const visitedSelf=bd.map(r=>Array(boardSize).fill(false));
+      const {libs:selfLibs}=groupAndLibs(bd,r,c,color,visitedSelf);
+      if(selfLibs===0){ bd[r][c]=0; return false; }
+      return true;
+    }
+
+    /* -------------------- UI draw -------------------- */
+    function calcDimensions(){
+      const maxPx = Math.min(window.innerWidth*0.9, 600);
+      cellPx = Math.floor(maxPx / boardSize);
+      marginPx = cellPx;
+      canvas.width = marginPx*2 + cellPx*(boardSize-1);
+      canvas.height = canvas.width;
+      wrapper.style.width = canvas.width+'px';
+    }
+
+    function drawBoard(){
       ctx.clearRect(0,0,canvas.width,canvas.height);
       ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--grid-color');
       ctx.lineWidth = 1;
-
       // grid
       for(let i=0;i<boardSize;i++){
-        // vertical
         ctx.beginPath();
         ctx.moveTo(marginPx + i*cellPx, marginPx);
         ctx.lineTo(marginPx + i*cellPx, marginPx + cellPx*(boardSize-1));
         ctx.stroke();
-        // horizontal
         ctx.beginPath();
         ctx.moveTo(marginPx, marginPx + i*cellPx);
         ctx.lineTo(marginPx + cellPx*(boardSize-1), marginPx + i*cellPx);
         ctx.stroke();
       }
-
       // stones
-      for(let y=0;y<boardSize;y++){
-        for(let x=0;x<boardSize;x++){
-          if(board[y][x]) drawStone(x,y,board[y][x]);
+      for(let r=0;r<boardSize;r++){
+        for(let c=0;c<boardSize;c++){
+          if(board[r][c]) drawStone(c,r,board[r][c]);
         }
       }
     }
@@ -126,82 +153,77 @@
     function drawStone(x,y,color){
       const cx = marginPx + x*cellPx;
       const cy = marginPx + y*cellPx;
-      const r  = cellPx*stoneRadiusRatio;
+      const r = cellPx*stoneRadiusRatio;
       ctx.beginPath();
       ctx.arc(cx,cy,r,0,Math.PI*2);
-      ctx.fillStyle = color===1? '#000' : '#fff';
+      ctx.fillStyle = color===HUMAN? '#000' : '#fff';
       ctx.fill();
       ctx.strokeStyle = '#000';
       ctx.stroke();
     }
 
-    function canvasPosToCoord(evt){
-      const rect = canvas.getBoundingClientRect();
-      const x = (evt.touches? evt.touches[0].clientX : evt.clientX) - rect.left;
-      const y = (evt.touches? evt.touches[0].clientY : evt.clientY) - rect.top;
-      const col = Math.round((x - marginPx)/cellPx);
-      const row = Math.round((y - marginPx)/cellPx);
+    function updateTurnInfo(msg=""){
+      turnInfo.textContent = msg || '당신 차례: ●';
+    }
+
+    /* -------------------- Game flow -------------------- */
+    function initGame(){
+      board = Array.from({length: boardSize}, _=>Array(boardSize).fill(0));
+      calcDimensions();
+      drawBoard();
+      updateTurnInfo();
+    }
+
+    function canvasCoord(evt){
+      const rect=canvas.getBoundingClientRect();
+      const x=(evt.touches?evt.touches[0].clientX:evt.clientX)-rect.left;
+      const y=(evt.touches?evt.touches[0].clientY:evt.clientY)-rect.top;
+      const col=Math.round((x-marginPx)/cellPx);
+      const row=Math.round((y-marginPx)/cellPx);
       if(col>=0&&col<boardSize&&row>=0&&row<boardSize){
-        const dx = x - (marginPx + col*cellPx);
-        const dy = y - (marginPx + row*cellPx);
-        if(Math.hypot(dx,dy) < cellPx*0.45) return {row,col};
+        const dx=x-(marginPx+col*cellPx);
+        const dy=y-(marginPx+row*cellPx);
+        if(Math.hypot(dx,dy)<cellPx*0.45) return {row,col};
       }
       return null;
     }
 
-    function getNeighbors(r,c){
-      return [[r-1,c],[r+1,c],[r,c-1],[r,c+1]].filter(([nr,nc])=>nr>=0&&nr<boardSize&&nc>=0&&nc<boardSize);
-    }
-
-    function groupAndLiberties(r,c,color,visited){
-      const stack=[[r,c]]; const group=[]; let libs=0; visited[r][c]=true;
-      while(stack.length){
-        const [cr,cc]=stack.pop(); group.push([cr,cc]);
-        for(const [nr,nc] of getNeighbors(cr,cc)){
-          if(board[nr][nc]===0){ libs++; }
-          else if(board[nr][nc]===color && !visited[nr][nc]){
-            visited[nr][nc]=true; stack.push([nr,nc]);
-          }
-        }
-      }
-      return {group,libs};
-    }
-
-    function removeGroup(g){ for(const [r,c] of g) board[r][c]=0; }
-
-    function handlePlay(evt){
+    function humanMove(evt){
       evt.preventDefault();
-      const cc = canvasPosToCoord(evt);
+      const cc=canvasCoord(evt);
       if(!cc) return;
-      const {row,col} = cc;
-      if(board[row][col]) return;
-      board[row][col] = player;
-
-      const opp = player===1?2:1;
-      for(const [nr,nc] of getNeighbors(row,col)){
-        if(board[nr][nc]===opp){
-          const vis = Array.from({length: boardSize}, _=>Array(boardSize).fill(false));
-          const {group,libs} = groupAndLiberties(nr,nc,opp,vis);
-          if(libs===0) removeGroup(group);
-        }
-      }
-      const visSelf = Array.from({length: boardSize}, _=>Array(boardSize).fill(false));
-      const {libs:selfLibs} = groupAndLiberties(row,col,player,visSelf);
-      if(selfLibs===0){ board[row][col]=0; return; }
-      player = opp;
-      updateTurnInfo();
+      const {row,col}=cc;
+      if(!tryPlace(board,row,col,HUMAN)) return; // illegal
       drawBoard();
+      updateTurnInfo('AI 생각 중…');
+      setTimeout(aiMove, 300);
     }
 
-    function updateTurnInfo(){ turnInfo.textContent = `현재 차례: ${player===1? '● 흑':'○ 백'}`; }
+    function aiMove(){
+      const legalMoves=[];
+      for(let r=0;r<boardSize;r++){
+        for(let c=0;c<boardSize;c++){
+          if(board[r][c]!==0) continue;
+          const tmp=cloneBoard(board);
+          if(tryPlace(tmp,r,c,AI)) legalMoves.push([r,c]);
+        }
+      }
+      if(legalMoves.length){
+        const [r,c]=legalMoves[Math.floor(Math.random()*legalMoves.length)];
+        tryPlace(board,r,c,AI);
+        drawBoard();
+      }
+      updateTurnInfo();
+    }
 
-    canvas.addEventListener('click', handlePlay);
-    canvas.addEventListener('touchend', handlePlay);
-    sizeSel.addEventListener('change', ()=>{ boardSize=parseInt(sizeSel.value); initBoard(); });
-    resetBtn.addEventListener('click', initBoard);
+    /* -------------------- Event bindings -------------------- */
+    canvas.addEventListener('click', humanMove);
+    canvas.addEventListener('touchend', humanMove);
+    sizeSel.addEventListener('change', ()=>{ boardSize=parseInt(sizeSel.value); initGame(); });
+    resetBtn.addEventListener('click', initGame);
     window.addEventListener('resize', ()=>{ calcDimensions(); drawBoard(); });
 
-    initBoard();
+    initGame();
   </script>
 </body>
 </html>
