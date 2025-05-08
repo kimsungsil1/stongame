@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>바둑 게임 (Go)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    :root {
+      --bg-board: #d8a454;
+      --bg-page: #f0f0f0;
+      --grid-color: #000;
+    }
+    * { box-sizing: border-box; }
+    body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1rem;
+      font-family: sans-serif;
+      background: var(--bg-page);
+      margin: 0;
+      padding: 1rem 0 3rem;
+    }
+    h1 { margin: 0; font-size: clamp(1.2rem, 4vw, 1.8rem); }
+    #controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem 1rem;
+      justify-content: center;
+      align-items: center;
+    }
+    #controls select,
+    #controls button {
+      padding: 0.4rem 0.8rem;
+      font-size: 1rem;
+    }
+    #boardWrapper {
+      background: var(--bg-board);
+      border-radius: 0.5rem;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+      touch-action: manipulation; /* smoother mobile taps */
+    }
+    canvas { display: block; height: auto; width: 100%; }
+  </style>
+</head>
+<body>
+  <h1>바둑 게임</h1>
+  <div id="controls">
+    <label for="sizeSelect">보드 크기:</label>
+    <select id="sizeSelect">
+      <option value="5">5×5</option>
+      <option value="7">7×7</option>
+      <option value="9">9×9</option>
+      <option value="13">13×13</option>
+      <option value="19" selected>19×19</option>
+    </select>
+    <button id="resetBtn">새 게임</button>
+    <span id="turnInfo"></span>
+  </div>
+  <div id="boardWrapper">
+    <canvas id="boardCanvas"></canvas>
+  </div>
+
+  <script>
+    const canvas   = document.getElementById('boardCanvas');
+    const ctx      = canvas.getContext('2d');
+    const sizeSel  = document.getElementById('sizeSelect');
+    const resetBtn = document.getElementById('resetBtn');
+    const turnInfo = document.getElementById('turnInfo');
+    const wrapper  = document.getElementById('boardWrapper');
+
+    const stoneRadiusRatio = 0.4; // relative to cell size
+
+    let boardSize = parseInt(sizeSel.value);
+    let board  = [];// 0 empty, 1 black, 2 white
+    let player = 1; // black first
+
+    let marginPx; // dynamic per resize
+    let cellPx;
+
+    function calcDimensions() {
+      // use 90vw or 600px max, minus some padding
+      const maxBoardPx = Math.min(window.innerWidth * 0.9, 600);
+      cellPx   = Math.floor(maxBoardPx / boardSize);
+      marginPx = cellPx; // keep margin 1 cell
+      canvas.width  = marginPx*2 + cellPx*(boardSize-1);
+      canvas.height = canvas.width; // square
+      wrapper.style.width = canvas.width + 'px';
+    }
+
+    function initBoard() {
+      board = Array.from({length: boardSize}, () => Array(boardSize).fill(0));
+      player = 1;
+      calcDimensions();
+      drawBoard();
+      updateTurnInfo();
+    }
+
+    function drawBoard() {
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+      ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--grid-color');
+      ctx.lineWidth = 1;
+
+      // grid
+      for(let i=0;i<boardSize;i++){
+        // vertical
+        ctx.beginPath();
+        ctx.moveTo(marginPx + i*cellPx, marginPx);
+        ctx.lineTo(marginPx + i*cellPx, marginPx + cellPx*(boardSize-1));
+        ctx.stroke();
+        // horizontal
+        ctx.beginPath();
+        ctx.moveTo(marginPx, marginPx + i*cellPx);
+        ctx.lineTo(marginPx + cellPx*(boardSize-1), marginPx + i*cellPx);
+        ctx.stroke();
+      }
+
+      // stones
+      for(let y=0;y<boardSize;y++){
+        for(let x=0;x<boardSize;x++){
+          if(board[y][x]) drawStone(x,y,board[y][x]);
+        }
+      }
+    }
+
+    function drawStone(x,y,color){
+      const cx = marginPx + x*cellPx;
+      const cy = marginPx + y*cellPx;
+      const r  = cellPx*stoneRadiusRatio;
+      ctx.beginPath();
+      ctx.arc(cx,cy,r,0,Math.PI*2);
+      ctx.fillStyle = color===1? '#000' : '#fff';
+      ctx.fill();
+      ctx.strokeStyle = '#000';
+      ctx.stroke();
+    }
+
+    function canvasPosToCoord(evt){
+      const rect = canvas.getBoundingClientRect();
+      const x = (evt.touches? evt.touches[0].clientX : evt.clientX) - rect.left;
+      const y = (evt.touches? evt.touches[0].clientY : evt.clientY) - rect.top;
+      const col = Math.round((x - marginPx)/cellPx);
+      const row = Math.round((y - marginPx)/cellPx);
+      if(col>=0&&col<boardSize&&row>=0&&row<boardSize){
+        const dx = x - (marginPx + col*cellPx);
+        const dy = y - (marginPx + row*cellPx);
+        if(Math.hypot(dx,dy) < cellPx*0.45) return {row,col};
+      }
+      return null;
+    }
+
+    function getNeighbors(r,c){
+      return [[r-1,c],[r+1,c],[r,c-1],[r,c+1]].filter(([nr,nc])=>nr>=0&&nr<boardSize&&nc>=0&&nc<boardSize);
+    }
+
+    function groupAndLiberties(r,c,color,visited){
+      const stack=[[r,c]]; const group=[]; let libs=0; visited[r][c]=true;
+      while(stack.length){
+        const [cr,cc]=stack.pop(); group.push([cr,cc]);
+        for(const [nr,nc] of getNeighbors(cr,cc)){
+          if(board[nr][nc]===0){ libs++; }
+          else if(board[nr][nc]===color && !visited[nr][nc]){
+            visited[nr][nc]=true; stack.push([nr,nc]);
+          }
+        }
+      }
+      return {group,libs};
+    }
+
+    function removeGroup(g){ for(const [r,c] of g) board[r][c]=0; }
+
+    function handlePlay(evt){
+      evt.preventDefault();
+      const cc = canvasPosToCoord(evt);
+      if(!cc) return;
+      const {row,col} = cc;
+      if(board[row][col]) return;
+      board[row][col] = player;
+
+      const opp = player===1?2:1;
+      for(const [nr,nc] of getNeighbors(row,col)){
+        if(board[nr][nc]===opp){
+          const vis = Array.from({length: boardSize}, _=>Array(boardSize).fill(false));
+          const {group,libs} = groupAndLiberties(nr,nc,opp,vis);
+          if(libs===0) removeGroup(group);
+        }
+      }
+      const visSelf = Array.from({length: boardSize}, _=>Array(boardSize).fill(false));
+      const {libs:selfLibs} = groupAndLiberties(row,col,player,visSelf);
+      if(selfLibs===0){ board[row][col]=0; return; }
+      player = opp;
+      updateTurnInfo();
+      drawBoard();
+    }
+
+    function updateTurnInfo(){ turnInfo.textContent = `현재 차례: ${player===1? '● 흑':'○ 백'}`; }
+
+    canvas.addEventListener('click', handlePlay);
+    canvas.addEventListener('touchend', handlePlay);
+    sizeSel.addEventListener('change', ()=>{ boardSize=parseInt(sizeSel.value); initBoard(); });
+    resetBtn.addEventListener('click', initBoard);
+    window.addEventListener('resize', ()=>{ calcDimensions(); drawBoard(); });
+
+    initBoard();
+  </script>
+</body>
+</html>
