@@ -1,190 +1,54 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-  <meta charset="UTF-8">
-  <title>모바일 바둑 게임 (AI 상대)</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <style>
-    :root {
-      --bg-board: #d8a454;
-      --bg-page: #f0f0f0;
-      --grid-color: #000;
-    }
-    *{box-sizing:border-box;touch-action:manipulation;}
-    body{display:flex;flex-direction:column;align-items:center;gap:1rem;font-family:sans-serif;background:var(--bg-page);margin:0;padding:1rem 0 3rem;}
-    h1{margin:0;font-size:clamp(1.2rem,4vw,1.8rem);}
-    #controls{display:flex;flex-wrap:wrap;gap:0.5rem 1rem;justify-content:center;align-items:center;}
-    select,button{padding:0.4rem 0.8rem;font-size:1rem;}
-    #boardWrapper{background:var(--bg-board);border-radius:0.5rem;box-shadow:0 4px 10px rgb(0 0 0 / .2);}
-    canvas{display:block;width:100%;height:auto;touch-action:none;}
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>모바일 바둑 게임</title>
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <h1>바둑 게임 (AI 상대)</h1>
-  <div id="controls">
-    <label>보드:</label>
-    <select id="sizeSelect">
-      <option value="5">5×5</option>
-      <option value="7">7×7</option>
-      <option value="9">9×9</option>
-      <option value="13">13×13</option>
-      <option value="19" selected>19×19</option>
-    </select>
-    <label>AI:</label>
-    <select id="aiLevel">
-      <option value="easy">쉬움</option>
-      <option value="medium" selected>보통</option>
-      <option value="hard">어려움</option>
-    </select>
-    <button id="resetBtn">새 게임</button>
-    <span id="turnInfo"></span>
-  </div>
-  <div id="boardWrapper"><canvas id="boardCanvas"></canvas></div>
+    <div class="container">
+        <h1>모바일 바둑</h1>
 
-<script>
-/***** CONSTANTS *****/
-const HUMAN = 1;   // 흑
-const AI    = 2;   // 백
-const RATIO = 0.4; // stone radius
+        <div class="controls">
+            <label for="board-size">바둑판 크기:</label>
+            <select id="board-size">
+                <option value="5">5x5</option>
+                <option value="7">7x7</option>
+                <option value="9" selected>9x9</option>
+                <option value="13">13x13</option>
+                <option value="19">19x19</option>
+            </select>
 
-/***** DOM *****/
-const cvs = document.getElementById('boardCanvas');
-const ctx = cvs.getContext('2d');
-const sizeSel = document.getElementById('sizeSelect');
-const aiSel   = document.getElementById('aiLevel');
-const resetBtn= document.getElementById('resetBtn');
-const info    = document.getElementById('turnInfo');
-const wrap    = document.getElementById('boardWrapper');
+            <label for="ai-level">AI 난이도:</label>
+            <select id="ai-level">
+                <option value="easy">초급</option>
+                <option value="medium" selected>중급</option>
+                <option value="hard">고급</option>
+            </select>
 
-/***** GAME STATE *****/
-let N = +sizeSel.value;
-let board = [];
-let cell, margin;
-let prevHash = null; // for simple ko rule
+            <button id="start-game">새 게임 시작</button>
+        </div>
 
-/***** HELPERS *****/
-const clone = bd=>bd.map(r=>r.slice());
-const hash  = bd=>bd.flat().join('');
-const neigh = (r,c)=>[[r-1,c],[r+1,c],[r,c-1],[r,c+1]].filter(([y,x])=>y>=0&&y<N&&x>=0&&x<N);
+        <div class="game-info">
+            <p>현재 플레이어: <span id="current-player">흑</span></p>
+            <p>흑 잡은 돌: <span id="black-captures">0</span></p>
+            <p>백 잡은 돌: <span id="white-captures">0</span></p>
+        </div>
 
-function groupAndLib(bd,r,c,col,vis){
-  const st=[[r,c]], grp=[]; vis[r][c]=1; let libs=0;
-  while(st.length){
-    const [y,x]=st.pop(); grp.push([y,x]);
-    for(const [ny,nx] of neigh(y,x)){
-      if(bd[ny][nx]===0) libs++;
-      else if(bd[ny][nx]===col && !vis[ny][nx]){vis[ny][nx]=1; st.push([ny,nx]);}
-    }
-  }
-  return {grp,libs};
-}
+        <div class="board-container">
+            <div id="baduk-board">
+                </div>
+        </div>
 
-function remove(bd,grp){grp.forEach(([y,x])=>bd[y][x]=0);} 
+        <div id="popup" class="popup-hidden">
+            <div class="popup-content">
+                <h2 id="popup-message"></h2>
+                <button id="popup-close">닫기</button>
+            </div>
+        </div>
+    </div>
 
-function legal(bd,r,c,col,checkKo=true){
-  if(bd[r][c]) return false;
-  const opp=col===HUMAN?AI:HUMAN;
-  bd[r][c]=col;
-  // capture
-  for(const [ny,nx] of neigh(r,c)) if(bd[ny][nx]===opp){
-    const v=bd.map(_=>Array(N).fill(0));
-    const {grp,libs}=groupAndLib(bd,ny,nx,opp,v);
-    if(libs===0) remove(bd,grp);
-  }
-  // suicide
-  const vSelf=bd.map(_=>Array(N).fill(0));
-  if(groupAndLib(bd,r,c,col,vSelf).libs===0){ bd[r][c]=0; return false; }
-  if(checkKo){
-    const h=hash(bd);
-    if(h===prevHash){ bd[r][c]=0; return false; }
-    prevHash=h;
-  }
-  return true;
-}
-
-/***** UI *****/
-function resize(){
-  const max=Math.min(window.innerWidth*0.9,600);
-  cell=Math.floor(max/N);
-  margin=cell;
-  cvs.width=margin*2+cell*(N-1);
-  cvs.height=cvs.width;
-  wrap.style.width=cvs.width+'px';
-}
-
-function draw(){
-  ctx.clearRect(0,0,cvs.width,cvs.height);
-  ctx.strokeStyle=getComputedStyle(document.documentElement).getPropertyValue('--grid-color');
-  // grid
-  for(let i=0;i<N;i++){
-    ctx.beginPath();ctx.moveTo(margin+i*cell,margin);ctx.lineTo(margin+i*cell,margin+cell*(N-1));ctx.stroke();
-    ctx.beginPath();ctx.moveTo(margin,margin+i*cell);ctx.lineTo(margin+cell*(N-1),margin+i*cell);ctx.stroke();
-  }
-  // stones
-  for(let y=0;y<N;y++) for(let x=0;x<N;x++) if(board[y][x]){
-    const cx=margin+x*cell, cy=margin+y*cell, r=cell*RATIO;
-    ctx.beginPath();ctx.arc(cx,cy,r,0,Math.PI*2);
-    ctx.fillStyle=board[y][x]===HUMAN?'#000':'#fff';ctx.fill();ctx.stroke();
-  }
-}
-
-function setMsg(t){info.textContent=t;}
-
-/***** SCORING (area) *****/
-function score(bd){
-  let b=0,w=0;const vis=bd.map(_=>Array(N).fill(0));
-  for(let y=0;y<N;y++) for(let x=0;x<N;x++){
-    if(bd[y][x]===HUMAN) b++; else if(bd[y][x]===AI) w++; else if(!vis[y][x]){
-      // flood fill empty region
-      const stack=[[y,x]];vis[y][x]=1;const empties=[[y,x]];const adj=new Set();
-      while(stack.length){const [cy,cx]=stack.pop();for(const [ny,nx] of neigh(cy,cx)){
-        if(bd[ny][nx]===0&&!vis[ny][nx]){vis[ny][nx]=1;stack.push([ny,nx]);empties.push([ny,nx]);}
-        else if(bd[ny][nx]!==0) adj.add(bd[ny][nx]);}}
-      if(adj.size===1){(adj.has(HUMAN)?b:w)+=empties.length;}
-    }
-  }
-  return {b,w};
-}
-
-function gameEnd(){return board.flat().every(v=>v);} // simple: board full
-
-function showResult(){const s=score(board);const diff=s.b-s.w;alert(`흑 ${s.b} : 백 ${s.w}\n${diff>0?'흑 승':diff<0?'백 승':'무승부'}`);setMsg(`흑 ${s.b} : 백 ${s.w}`);} 
-
-/***** AI *****/
-function aiTurn(){const level=aiSel.value;const moves=[];for(let y=0;y<N;y++)for(let x=0;x<N;x++) if(board[y][x]===0){const tmp=clone(board);if(legal(tmp,y,x,AI,false)) moves.push([y,x,tmp]);}
- if(!moves.length){setMsg('AI 패스, 당신 차례');return;}
- let choice;
- if(level==='easy') choice=moves[Math.random()*moves.length|0];
- else if(level==='medium'){
-   let bestCap=-1,cands=[];
-   for(const [y,x,t] of moves){const cap=countCaptures(board,y,x,AI);if(cap>bestCap){bestCap=cap;cands=[y,x,t];} }
-   choice=cands.length?cands:moves[Math.random()*moves.length|0];
- }else{
-   let best= -1e9, cands=[];
-   for(const [y,x,t] of moves){const {b,w}=score(t);const val=w-b;if(val>best){best=val;cands=[y,x,t];}}
-   choice=cands.length?cands:moves[0];
- }
- legal(board,choice[0],choice[1],AI);
- draw(); if(gameEnd()) showResult(); else setMsg('당신 차례: ●');}
-
-function countCaptures(bd,r,c,col){const tmp=clone(bd);legal(tmp,r,c,col,false);return bd.flat().filter(v=>v===HUMAN).length - tmp.flat().filter(v=>v===HUMAN).length;}
-
-/***** PLAYER *****/
-function coord(evt){const rect=cvs.getBoundingClientRect();const x=evt.clientX-rect.left;const y=evt.clientY-rect.top;const col=Math.round((x-margin)/cell);const row=Math.round((y-margin)/cell);if(col>=0&&col<N&&row>=0&&row<N){const dx=x-(margin+col*cell);const dy=y-(margin+row*cell);if(Math.hypot(dx,dy)<cell*0.45)return [row,col];}return null;}
-
-function onPointer(e){e.preventDefault();const p=coord(e);if(!p) return;const [r,c]=p;if(!legal(board,r,c,HUMAN)) return;draw(); if(gameEnd()){showResult();return;} setMsg('AI 생각 중…'); setTimeout(aiTurn,300);} 
-
-/***** INIT *****/
-function init(){N=+sizeSel.value;board=Array.from({length:N},_=>Array(N).fill(0));prevHash=null;resize();draw();setMsg('당신 차례: ●');}
-
-/***** EVENTS *****/
-cvs.addEventListener('pointerdown', onPointer, {passive:false});
-sizeSel.addEventListener('change', init);
-aiSel.addEventListener('change', ()=>setMsg('설정 변경됨, 계속 진행'));
-resetBtn.addEventListener('click', init);
-window.addEventListener('resize', ()=>{resize();draw();});
-
-init();
-</script>
+    <script src="script.js"></script>
 </body>
 </html>
