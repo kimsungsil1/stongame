@@ -94,12 +94,12 @@ body {
 
 .horizontal-line {
     width: 100%;
-    height: 1px; /* 선 두께 */
+    /* height: 1px;  JS에서 외곽선 처리 */
 }
 
 .vertical-line {
     height: 100%;
-    width: 1px; /* 선 두께 */
+    /* width: 1px; JS에서 외곽선 처리 */
 }
 
 /* 화점 */
@@ -113,19 +113,17 @@ body {
 }
 
 
-.cell {
-    /* 실제 클릭 영역은 cell 이지만, 눈에 보이는 것은 stone-container */
-    position: relative;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    /* border: 1px dashed #eee; */ /* 디버깅용: 셀 경계 표시 */
-    cursor: pointer;
+.cell { /* 이제 cell은 사용하지 않음, stone-container가 직접 역할 */
+    /* position: relative; */
+    /* display: flex; */
+    /* justify-content: center; */
+    /* align-items: center; */
+    /* cursor: pointer; */
 }
 
 .stone-container {
     position: absolute;
-    width: 80%; /* 셀 크기 대비 돌 크기 */
+    width: 80%; /* 셀 크기 대비 돌 크기, 교차점 기준이므로 cellSize의 80%가 적절 */
     height: 80%;
     border-radius: 50%;
     box-sizing: border-box;
@@ -133,7 +131,7 @@ body {
     justify-content: center;
     align-items: center;
     transform: translate(-50%, -50%); /* 셀의 교차점에 위치하도록 조정 */
-    /* left, top은 JS에서 설정 */
+    cursor: pointer; /* stone-container에 커서 적용 */
 }
 
 .stone-container.black {
@@ -147,7 +145,8 @@ body {
     box-shadow: 1px 1px 3px rgba(0,0,0,0.5);
 }
 
-/* 팝업 스타일 */
+/* 아래 팝업 관련 스타일 전체 삭제 */
+/*
 .popup-hidden {
     display: none;
 }
@@ -189,6 +188,7 @@ body {
 .popup-content button:hover {
     background-color: #45a049;
 }
+*/
 
 /* 반응형 처리 */
 @media (max-width: 400px) {
@@ -205,5 +205,9 @@ body {
     .star-point {
         width: 4px;
         height: 4px;
+    }
+     .stone-container { /* 모바일에서 돌 크기 약간 더 작게 보이도록 */
+        width: 75%;
+        height: 75%;
     }
 }
