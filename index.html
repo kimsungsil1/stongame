@@ -10,28 +10,13 @@
       --bg-page: #f0f0f0;
       --grid-color: #000;
     }
-    * { box-sizing: border-box; }
-    body {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 1rem;
-      font-family: sans-serif;
-      background: var(--bg-page);
-      margin: 0;
-      padding: 1rem 0 3rem;
-    }
-    h1 { margin: 0; font-size: clamp(1.2rem,4vw,1.8rem); }
-    #controls {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.5rem 1rem;
-      justify-content: center;
-      align-items: center;
-    }
-    select, button { padding: 0.4rem 0.8rem; font-size: 1rem; }
-    #boardWrapper { background: var(--bg-board); border-radius: 0.5rem; box-shadow: 0 4px 10px rgba(0,0,0,0.2); touch-action: manipulation; }
-    canvas { display: block; width: 100%; height: auto; }
+    *{box-sizing:border-box;touch-action:manipulation;}
+    body{display:flex;flex-direction:column;align-items:center;gap:1rem;font-family:sans-serif;background:var(--bg-page);margin:0;padding:1rem 0 3rem;}
+    h1{margin:0;font-size:clamp(1.2rem,4vw,1.8rem);}
+    #controls{display:flex;flex-wrap:wrap;gap:0.5rem 1rem;justify-content:center;align-items:center;}
+    select,button{padding:0.4rem 0.8rem;font-size:1rem;}
+    #boardWrapper{background:var(--bg-board);border-radius:0.5rem;box-shadow:0 4px 10px rgb(0 0 0 / .2);}
+    canvas{display:block;width:100%;height:auto;touch-action:none;}
   </style>
 </head>
 <body>
@@ -56,125 +41,150 @@
   </div>
   <div id="boardWrapper"><canvas id="boardCanvas"></canvas></div>
 
-  <script>
-    // ---------- Constants ----------
-    const HUMAN = 1; // black ●
-    const AI    = 2; // white ○
-    const stoneRadiusRatio = 0.4;
+<script>
+/***** CONSTANTS *****/
+const HUMAN = 1;   // 흑
+const AI    = 2;   // 백
+const RATIO = 0.4; // stone radius
 
-    // ---------- DOM refs ----------
-    const canvas   = document.getElementById('boardCanvas');
-    const ctx      = canvas.getContext('2d');
-    const sizeSel  = document.getElementById('sizeSelect');
-    const aiSel    = document.getElementById('aiLevel');
-    const resetBtn = document.getElementById('resetBtn');
-    const turnInfo = document.getElementById('turnInfo');
-    const wrapper  = document.getElementById('boardWrapper');
+/***** DOM *****/
+const cvs = document.getElementById('boardCanvas');
+const ctx = cvs.getContext('2d');
+const sizeSel = document.getElementById('sizeSelect');
+const aiSel   = document.getElementById('aiLevel');
+const resetBtn= document.getElementById('resetBtn');
+const info    = document.getElementById('turnInfo');
+const wrap    = document.getElementById('boardWrapper');
 
-    // ---------- Game state ----------
-    let boardSize = parseInt(sizeSel.value);
-    let board = []; // 0 empty / 1 black / 2 white
-    let marginPx, cellPx;
+/***** GAME STATE *****/
+let N = +sizeSel.value;
+let board = [];
+let cell, margin;
+let prevHash = null; // for simple ko rule
 
-    // ---------- Helper functions ----------
-    const clone = (bd) => bd.map(r=>r.slice());
-    const neighbors = (r,c) => [[r-1,c],[r+1,c],[r,c-1],[r,c+1]].filter(([nr,nc])=>nr>=0&&nr<boardSize&&nc>=0&&nc<boardSize);
+/***** HELPERS *****/
+const clone = bd=>bd.map(r=>r.slice());
+const hash  = bd=>bd.flat().join('');
+const neigh = (r,c)=>[[r-1,c],[r+1,c],[r,c-1],[r,c+1]].filter(([y,x])=>y>=0&&y<N&&x>=0&&x<N);
 
-    function groupAndLibs(bd, r,c,color,vis){
-      const st=[[r,c]], grp=[]; vis[r][c]=true; let libs=0;
-      while(st.length){
-        const [cr,cc]=st.pop(); grp.push([cr,cc]);
-        for(const [nr,nc] of neighbors(cr,cc)){
-          if(bd[nr][nc]===0) libs++;
-          else if(bd[nr][nc]===color && !vis[nr][nc]){ vis[nr][nc]=true; st.push([nr,nc]); }
-        }
-      }
-      return {grp,libs};
+function groupAndLib(bd,r,c,col,vis){
+  const st=[[r,c]], grp=[]; vis[r][c]=1; let libs=0;
+  while(st.length){
+    const [y,x]=st.pop(); grp.push([y,x]);
+    for(const [ny,nx] of neigh(y,x)){
+      if(bd[ny][nx]===0) libs++;
+      else if(bd[ny][nx]===col && !vis[ny][nx]){vis[ny][nx]=1; st.push([ny,nx]);}
     }
+  }
+  return {grp,libs};
+}
 
-    function removeGroup(bd, grp){ grp.forEach(([r,c])=>bd[r][c]=0); }
+function remove(bd,grp){grp.forEach(([y,x])=>bd[y][x]=0);} 
 
-    function legalMove(bd,r,c,color){
-      if(bd[r][c]!==0) return false;
-      const opp=color===HUMAN?AI:HUMAN;
-      bd[r][c]=color;
-      // capture opp groups
-      for(const [nr,nc] of neighbors(r,c)) if(bd[nr][nc]===opp){ const vis=bd.map(_=>Array(boardSize).fill(false)); const {grp,libs}=groupAndLibs(bd,nr,nc,opp,vis); if(libs===0) removeGroup(bd,grp); }
-      // suicide check
-      const visSelf=bd.map(_=>Array(boardSize).fill(false));
-      const {libs}=groupAndLibs(bd,r,c,color,visSelf);
-      if(libs===0){ bd[r][c]=0; return false; }
-      return true;
+function legal(bd,r,c,col,checkKo=true){
+  if(bd[r][c]) return false;
+  const opp=col===HUMAN?AI:HUMAN;
+  bd[r][c]=col;
+  // capture
+  for(const [ny,nx] of neigh(r,c)) if(bd[ny][nx]===opp){
+    const v=bd.map(_=>Array(N).fill(0));
+    const {grp,libs}=groupAndLib(bd,ny,nx,opp,v);
+    if(libs===0) remove(bd,grp);
+  }
+  // suicide
+  const vSelf=bd.map(_=>Array(N).fill(0));
+  if(groupAndLib(bd,r,c,col,vSelf).libs===0){ bd[r][c]=0; return false; }
+  if(checkKo){
+    const h=hash(bd);
+    if(h===prevHash){ bd[r][c]=0; return false; }
+    prevHash=h;
+  }
+  return true;
+}
+
+/***** UI *****/
+function resize(){
+  const max=Math.min(window.innerWidth*0.9,600);
+  cell=Math.floor(max/N);
+  margin=cell;
+  cvs.width=margin*2+cell*(N-1);
+  cvs.height=cvs.width;
+  wrap.style.width=cvs.width+'px';
+}
+
+function draw(){
+  ctx.clearRect(0,0,cvs.width,cvs.height);
+  ctx.strokeStyle=getComputedStyle(document.documentElement).getPropertyValue('--grid-color');
+  // grid
+  for(let i=0;i<N;i++){
+    ctx.beginPath();ctx.moveTo(margin+i*cell,margin);ctx.lineTo(margin+i*cell,margin+cell*(N-1));ctx.stroke();
+    ctx.beginPath();ctx.moveTo(margin,margin+i*cell);ctx.lineTo(margin+cell*(N-1),margin+i*cell);ctx.stroke();
+  }
+  // stones
+  for(let y=0;y<N;y++) for(let x=0;x<N;x++) if(board[y][x]){
+    const cx=margin+x*cell, cy=margin+y*cell, r=cell*RATIO;
+    ctx.beginPath();ctx.arc(cx,cy,r,0,Math.PI*2);
+    ctx.fillStyle=board[y][x]===HUMAN?'#000':'#fff';ctx.fill();ctx.stroke();
+  }
+}
+
+function setMsg(t){info.textContent=t;}
+
+/***** SCORING (area) *****/
+function score(bd){
+  let b=0,w=0;const vis=bd.map(_=>Array(N).fill(0));
+  for(let y=0;y<N;y++) for(let x=0;x<N;x++){
+    if(bd[y][x]===HUMAN) b++; else if(bd[y][x]===AI) w++; else if(!vis[y][x]){
+      // flood fill empty region
+      const stack=[[y,x]];vis[y][x]=1;const empties=[[y,x]];const adj=new Set();
+      while(stack.length){const [cy,cx]=stack.pop();for(const [ny,nx] of neigh(cy,cx)){
+        if(bd[ny][nx]===0&&!vis[ny][nx]){vis[ny][nx]=1;stack.push([ny,nx]);empties.push([ny,nx]);}
+        else if(bd[ny][nx]!==0) adj.add(bd[ny][nx]);}}
+      if(adj.size===1){(adj.has(HUMAN)?b:w)+=empties.length;}
     }
+  }
+  return {b,w};
+}
 
-    function getLegalMoves(color){
-      const moves=[];
-      for(let r=0;r<boardSize;r++) for(let c=0;c<boardSize;c++) if(board[r][c]===0){ const tmp=clone(board); if(legalMove(tmp,r,c,color)) moves.push([r,c]); }
-      return moves;
-    }
+function gameEnd(){return board.flat().every(v=>v);} // simple: board full
 
-    // ---------- Board / UI ----------
-    function calcDim(){ const max=Math.min(window.innerWidth*0.9,600); cellPx=Math.floor(max/boardSize); marginPx=cellPx; canvas.width=marginPx*2+cellPx*(boardSize-1); canvas.height=canvas.width; wrapper.style.width=canvas.width+'px'; }
+function showResult(){const s=score(board);const diff=s.b-s.w;alert(`흑 ${s.b} : 백 ${s.w}\n${diff>0?'흑 승':diff<0?'백 승':'무승부'}`);setMsg(`흑 ${s.b} : 백 ${s.w}`);} 
 
-    function draw(){ ctx.clearRect(0,0,canvas.width,canvas.height); ctx.strokeStyle=getComputedStyle(document.documentElement).getPropertyValue('--grid-color'); ctx.lineWidth=1; for(let i=0;i<boardSize;i++){ ctx.beginPath(); ctx.moveTo(marginPx+i*cellPx,marginPx); ctx.lineTo(marginPx+i*cellPx,marginPx+cellPx*(boardSize-1)); ctx.stroke(); ctx.beginPath(); ctx.moveTo(marginPx,marginPx+i*cellPx); ctx.lineTo(marginPx+cellPx*(boardSize-1),marginPx+i*cellPx); ctx.stroke(); } for(let r=0;r<boardSize;r++) for(let c=0;c<boardSize;c++) if(board[r][c]) drawStone(c,r,board[r][c]); }
-    function drawStone(x,y,color){ const cx=marginPx+x*cellPx, cy=marginPx+y*cellPx, r=cellPx*stoneRadiusRatio; ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2); ctx.fillStyle=color===HUMAN?"#000":"#fff"; ctx.fill(); ctx.strokeStyle="#000"; ctx.stroke(); }
+/***** AI *****/
+function aiTurn(){const level=aiSel.value;const moves=[];for(let y=0;y<N;y++)for(let x=0;x<N;x++) if(board[y][x]===0){const tmp=clone(board);if(legal(tmp,y,x,AI,false)) moves.push([y,x,tmp]);}
+ if(!moves.length){setMsg('AI 패스, 당신 차례');return;}
+ let choice;
+ if(level==='easy') choice=moves[Math.random()*moves.length|0];
+ else if(level==='medium'){
+   let bestCap=-1,cands=[];
+   for(const [y,x,t] of moves){const cap=countCaptures(board,y,x,AI);if(cap>bestCap){bestCap=cap;cands=[y,x,t];} }
+   choice=cands.length?cands:moves[Math.random()*moves.length|0];
+ }else{
+   let best= -1e9, cands=[];
+   for(const [y,x,t] of moves){const {b,w}=score(t);const val=w-b;if(val>best){best=val;cands=[y,x,t];}}
+   choice=cands.length?cands:moves[0];
+ }
+ legal(board,choice[0],choice[1],AI);
+ draw(); if(gameEnd()) showResult(); else setMsg('당신 차례: ●');}
 
-    function setTurn(msg){ turnInfo.textContent=msg; }
+function countCaptures(bd,r,c,col){const tmp=clone(bd);legal(tmp,r,c,col,false);return bd.flat().filter(v=>v===HUMAN).length - tmp.flat().filter(v=>v===HUMAN).length;}
 
-    // ---------- Scoring ----------
-    function scoreGame(){
-      let bStone=0,wStone=0,bTer=0,wTer=0; const visited=Array.from({length:boardSize},_=>Array(boardSize).fill(false));
-      for(let r=0;r<boardSize;r++) for(let c=0;c<boardSize;c++){
-        if(board[r][c]===HUMAN) bStone++;
-        else if(board[r][c]===AI) wStone++;
-        else if(!visited[r][c]){
-          // empty region
-          const q=[[r,c]]; visited[r][c]=true; let empties=[[r,c]]; const adj=new Set();
-          while(q.length){ const [cr,cc]=q.pop(); for(const [nr,nc] of neighbors(cr,cc)){ if(board[nr][nc]===0 && !visited[nr][nc]){ visited[nr][nc]=true; q.push([nr,nc]); empties.push([nr,nc]); } else if(board[nr][nc]!==0){ adj.add(board[nr][nc]); } } }
-          if(adj.size===1){ const owner=[...adj][0]; if(owner===HUMAN) bTer+=empties.length; else wTer+=empties.length; }
-        }
-      }
-      const bScore=bStone+bTer; const wScore=wStone+wTer; const diff=bScore-wScore; const winner=diff>0?"흑 승" : diff<0?"백 승":"무승부";
-      return {bScore,wScore,diff,winner,bStone,wStone,bTer,wTer};
-    }
+/***** PLAYER *****/
+function coord(evt){const rect=cvs.getBoundingClientRect();const x=evt.clientX-rect.left;const y=evt.clientY-rect.top;const col=Math.round((x-margin)/cell);const row=Math.round((y-margin)/cell);if(col>=0&&col<N&&row>=0&&row<N){const dx=x-(margin+col*cell);const dy=y-(margin+row*cell);if(Math.hypot(dx,dy)<cell*0.45)return [row,col];}return null;}
 
-    function showResult(){ const s=scoreGame(); const msg=`흑 ● ${s.bScore} (돌 ${s.bStone}+집 ${s.bTer})\n백 ○ ${s.wScore} (돌 ${s.wStone}+집 ${s.wTer})\n→ ${s.winner}`; alert(msg); setTurn(msg); }
+function onPointer(e){e.preventDefault();const p=coord(e);if(!p) return;const [r,c]=p;if(!legal(board,r,c,HUMAN)) return;draw(); if(gameEnd()){showResult();return;} setMsg('AI 생각 중…'); setTimeout(aiTurn,300);} 
 
-    function checkEnd(){ if(board.flat().every(v=>v!==0)) return true; const humanMoves=getLegalMoves(HUMAN); const aiMoves=getLegalMoves(AI); return humanMoves.length===0 && aiMoves.length===0; }
+/***** INIT *****/
+function init(){N=+sizeSel.value;board=Array.from({length:N},_=>Array(N).fill(0));prevHash=null;resize();draw();setMsg('당신 차례: ●');}
 
-    // ---------- AI ----------
-    function aiMove(){ const level=aiSel.value; const moves=getLegalMoves(AI); if(!moves.length) return; let choice;
-      if(level==='easy'){ choice=moves[Math.floor(Math.random()*moves.length)]; }
-      else if(level==='medium'){ // maximize immediate captures
-        let bestCap=-1; const cand=[];
-        for(const [r,c] of moves){ const tmp=clone(board); const before=tmp.flat().filter(v=>v===HUMAN).length; legalMove(tmp,r,c,AI); const after=tmp.flat().filter(v=>v===HUMAN).length; const captured=before-after; if(captured>bestCap){ bestCap=captured; cand.length=0; cand.push([r,c]); } else if(captured===bestCap){ cand.push([r,c]); } }
-        choice=cand[Math.floor(Math.random()*cand.length)]; }
-      else { // hard: evaluate score diff after move, choose best
-        let bestDiff=-Infinity; const cand=[];
-        for(const [r,c] of moves){ const tmp=clone(board); legalMove(tmp,r,c,AI); const {bScore,wScore}=scoreGameTmp(tmp); const diff=wScore-bScore; if(diff>bestDiff){ bestDiff=diff; cand.length=0; cand.push([r,c]); } else if(diff===bestDiff){ cand.push([r,c]); } }
-        choice=cand[Math.floor(Math.random()*cand.length)]; }
-      legalMove(board,choice[0],choice[1],AI); draw(); if(checkEnd()) showResult(); else setTurn('당신 차례: ●'); }
+/***** EVENTS *****/
+cvs.addEventListener('pointerdown', onPointer, {passive:false});
+sizeSel.addEventListener('change', init);
+aiSel.addEventListener('change', ()=>setMsg('설정 변경됨, 계속 진행'));
+resetBtn.addEventListener('click', init);
+window.addEventListener('resize', ()=>{resize();draw();});
 
-    function scoreGameTmp(bd){ // simplified for AI eval (stones only to save time)
-      let b=0,w=0; for(const v of bd.flat()){ if(v===HUMAN) b++; else if(v===AI) w++; } return {bScore:b,wScore:w}; }
-
-    // ---------- Player ----------
-    function coord(evt){ const rect=canvas.getBoundingClientRect(); const x=(evt.touches?evt.touches[0].clientX:evt.clientX)-rect.left; const y=(evt.touches?evt.touches[0].clientY:evt.clientY)-rect.top; const col=Math.round((x-marginPx)/cellPx); const row=Math.round((y-marginPx)/cellPx); if(col>=0&&col<boardSize&&row>=0&&row<boardSize){ const dx=x-(marginPx+col*cellPx); const dy=y-(marginPx+row*cellPx); if(Math.hypot(dx,dy)<cellPx*0.45) return [row,col]; } return null; }
-
-    function humanPlay(evt){ evt.preventDefault(); const pos=coord(evt); if(!pos) return; const [r,c]=pos; if(!legalMove(board,r,c,HUMAN)) return; draw(); if(checkEnd()){ showResult(); return; } setTurn('AI 생각 중…'); setTimeout(()=>{ aiMove(); },300); }
-
-    // ---------- Init / Reset ----------
-    function init(){ board=Array.from({length:boardSize},_=>Array(boardSize).fill(0)); calcDim(); draw(); setTurn('당신 차례: ●'); }
-
-    // ---------- Bindings ----------
-    canvas.addEventListener('click', humanPlay);
-    canvas.addEventListener('touchend', humanPlay);
-    sizeSel.addEventListener('change', ()=>{ boardSize=parseInt(sizeSel.value); init(); });
-    aiSel.addEventListener('change', ()=> setTurn('설정 변경됨, 계속 진행'));
-    resetBtn.addEventListener('click', init);
-    window.addEventListener('resize', ()=>{ calcDim(); draw(); });
-
-    init();
-  </script>
+init();
+</script>
 </body>
 </html>
